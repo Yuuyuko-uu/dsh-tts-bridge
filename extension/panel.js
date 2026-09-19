@@ -483,6 +483,16 @@
       return
     }
     auto = st.auto !== false
+    // 浏览器扩展有没有在联系我？15 秒没动静 = 没装或没开
+    const extAlive = !!(st.lastNext && Date.now() - st.lastNext < 15000)
+    if (!extAlive) {
+      recentEl.textContent = '还差一步'
+      statusEl.textContent = '⚠ 浏览器扩展还没连上 —— 看说明的第二步'
+      statusEl.style.color = '#e0b070'
+      stopBtn.style.opacity = '.55'
+      return
+    }
+
     const watching = (st.watching || []).length > 0
 
     const h = (st.history || [])[0]
