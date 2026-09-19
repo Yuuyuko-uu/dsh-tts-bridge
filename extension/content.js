@@ -22,6 +22,7 @@
   let cancelWanted = false
   let busySince = 0
   let lastWarning = null
+  let curBase = null // 这次是哪个窝（3080 还是 43129）
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -486,12 +487,12 @@
             reported = true
             status = '出声了'
             paint()
-            await tell({ type: 'playing', id: itemId, on: true })
+            await tell({ type: 'playing', id: itemId, on: true, base: curBase })
             // 一出声音就算成功，立刻回执；后面继续盯着，等它念完再报「停」
             resolve({ ok: true })
           } else if (waited % 25 === 0) {
             // 心跳：告诉宿主「我还在响」，免得页面刷新后那边永远以为在响
-            await tell({ type: 'playing', id: itemId, on: true })
+            await tell({ type: 'playing', id: itemId, on: true, base: curBase })
           }
           return
         }
@@ -501,7 +502,7 @@
           playTimer = null
           status = '念完了'
           paint()
-          await tell({ type: 'playing', id: itemId, on: false })
+          await tell({ type: 'playing', id: itemId, on: false, base: curBase })
           return
         }
         if (!reported && !retried && waited >= 6) {
@@ -518,7 +519,7 @@
           playTimer = null
           status = '点了朗读但没出声'
           paint()
-          await tell({ type: 'playing', id: itemId, on: false })
+          await tell({ type: 'playing', id: itemId, on: false, base: curBase })
           resolve({ ok: false, why: '点了朗读但没出声', detail: lastWarning ? '页面提示：' + lastWarning : null })
         }
       }, 1000)
@@ -561,7 +562,7 @@
   }
 
   async function ack(id, ok, error, detail) {
-    await tell({ type: 'ack', payload: { id: id, ok: ok, error: error || null, detail: detail || null } })
+    await tell({ type: 'ack', payload: { id: id, ok: ok, error: error || null, detail: detail || null, base: curBase } })
   }
 
   async function handle(item) {
@@ -593,6 +594,7 @@
           status = '连不上朗读桥：' + ((res && res.error) || '未知')
         } else {
           auto = res.data.auto !== false
+          if (res.data.base) { curBase = res.data.base }
           const item = res.data.item
           if (item && item.stop) {
             cancelWanted = true
