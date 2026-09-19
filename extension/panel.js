@@ -489,7 +489,8 @@
     if (!extAlive) {
       recentEl.textContent = '⚠ 还差一步：装浏览器扩展'
       statusEl.textContent = ''
-      const a = el('a', 'color:#e0b070;text-decoration:underline;cursor:pointer;font-size:11px', 'github.com/Yuuyuko-uu/dsh-tts-bridge')
+      const a = el('a', 'color:#e0b070;text-decoration:underline;cursor:pointer;font-size:11px;user-select:text', 'github.com/Yuuyuko-uu/dsh-tts-bridge')
+      a.dataset.xbClick = '1' // 标记成可点的 —— 不然会被拖动逻辑吃掉
       a.href = 'https://github.com/Yuuyuko-uu/dsh-tts-bridge'
       a.target = '_blank'
       a.rel = 'noreferrer'
