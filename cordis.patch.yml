@@ -1,0 +1,5 @@
+# DSH 朗读桥
+# 这一行同时激活「宿主半边」和这个包在 package.json 里声明的 dsh.client 网页半边。
+- insert:
+    - id: tts-bridge
+      name: 'dsh-tts-bridge'

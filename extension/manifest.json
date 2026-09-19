@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "朗读桥",
+  "version": "1.1.0",
+  "description": "把 DSH 里的话送到 DeepSeek 网页端，用你自己的账号朗读出来。",
+  "permissions": ["tabs", "alarms"],
+  "host_permissions": ["http://127.0.0.1:3080/*"],
+  "background": {
+    "service_worker": "bg.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chat.deepseek.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

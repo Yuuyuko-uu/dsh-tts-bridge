@@ -1,0 +1,3 @@
+﻿把两张截图放在这个文件夹里：
+  step-extension.png  —— 「加载已解压的扩展程序」那一步
+  step-panel.png      —— 小卡片长什么样
