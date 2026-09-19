@@ -497,9 +497,25 @@
       a.rel = 'noreferrer'
       statusEl.appendChild(a)
       if (st.extDir) {
-        const p = el('div', 'font-size:10px;color:#9a9a9a;user-select:text;word-break:break-all;max-width:54vw;margin-top:2px', st.extDir)
+        const p = el('div', 'font-size:10px;color:#9a9a9a;user-select:text;word-break:break-all;max-width:54vw;margin-top:2px;cursor:pointer', st.extDir)
         p.dataset.xbClick = '1'
-        p.title = '扩展文件夹就在这儿 —— 点一下选中，Ctrl+C 复制'
+        p.title = '点一下 = 复制这个路径'
+        p.addEventListener('click', async (ev) => {
+          ev.stopPropagation()
+          try {
+            await navigator.clipboard.writeText(st.extDir)
+            p.textContent = '✓ 已复制'
+          } catch (error) {
+            try {
+              const r = document.createRange()
+              r.selectNodeContents(p)
+              const sel = window.getSelection()
+              sel.removeAllRanges()
+              sel.addRange(r)
+            } catch (e2) {}
+          }
+          setTimeout(() => { p.textContent = st.extDir }, 2000)
+        })
         statusEl.appendChild(p)
       }
       stopBtn.style.opacity = '.55'
