@@ -41,7 +41,7 @@ dsh plugin --profile web add dsh-tts-bridge
 
 ### 第二步：装浏览器扩展
 
-![装扩展](docs/step-extension.png)
+![装扩展](docs/install-extension.png)
 
 1. 打开 `chrome://extensions`（Edge 用 `edge://extensions`）
 2. 打开「**开发者模式**」（Chrome 在右上角，Edge 在左下角）
@@ -75,7 +75,7 @@ dsh plugin --profile web add dsh-tts-bridge
 
 ### DSH 右下角的小卡片 🐳 朗读桥
 
-![小卡片](docs/step-panel.png)
+![小卡片](docs/panel.png)
 
 | | |
 |---|---|
