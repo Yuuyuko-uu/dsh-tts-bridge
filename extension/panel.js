@@ -496,6 +496,12 @@
       a.target = '_blank'
       a.rel = 'noreferrer'
       statusEl.appendChild(a)
+      if (st.extDir) {
+        const p = el('div', 'font-size:10px;color:#9a9a9a;user-select:text;word-break:break-all;max-width:54vw;margin-top:2px', st.extDir)
+        p.dataset.xbClick = '1'
+        p.title = '扩展文件夹就在这儿 —— 点一下选中，Ctrl+C 复制'
+        statusEl.appendChild(p)
+      }
       stopBtn.style.opacity = '.55'
       return
     }
