@@ -50,6 +50,14 @@ dsh plugin --profile web add dsh-tts-bridge
 5. 这个页面左下角会出现一行状态字 —— 装好了
 
 > Chrome 每次启动可能提醒一句「请停用开发者模式扩展」，点保留或关掉都行，不影响使用。
+> **`extension/` 这个文件夹在哪？**
+>
+> 它就在插件的安装目录里，不用去 GitHub 下：
+>
+> - **网页版（npx）**：`%USERPROFILE%\.dsh\profiles\web\node_modules\dsh-tts-bridge\extension`
+> - **桌面版**：`%APPDATA%\dsh-desktop\harness\profiles\web\node_modules\dsh-tts-bridge\extension`
+>
+> （把上面那行整个复制到资源管理器的地址栏，回车就跳过去了。**如果朗读桥的卡片提示「还差一步」，说明就是这一步没做。**）
 
 ### 第三步：第一次先自己点一下朗读（**必做**）
 
