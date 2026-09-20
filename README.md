@@ -1,3 +1,5 @@
+![朗读桥](docs/cover.jpg)
+
 # 🐳 朗读桥
 
 **让 DSH 里的会话，用 DeepSeek 网页端的声音念出来。**
