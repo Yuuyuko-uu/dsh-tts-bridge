@@ -212,6 +212,11 @@
 
   // quiet=true 时只在内容真变了才重建 —— 这样能实时刷新，又不会一抽一抽
   async function renderList(quiet) {
+    // 箭头跟着开合翻转 ✓
+    try {
+      if (watchBtn) watchBtn.textContent = '听谁 ' + (openList === 'watch' ? '▴' : '▾')
+      if (favBtn) favBtn.textContent = '收藏 ' + (openList === 'fav' ? '▴' : '▾')
+    } catch (e) {}
     if (!openList) {
       listEl.style.display = 'none'
       lastSig = ''
@@ -456,20 +461,20 @@
     setTimeout(refreshState, 600)
   })
   rowEl.appendChild(stopBtn)
-  rowEl.appendChild(
+  const watchBtn = 
     mkBtn('听谁 ▾', async () => {
       openList = openList === 'watch' ? '' : 'watch'
       await renderList()
-    }),
-  )
-  rowEl.appendChild(
+    })
+  rowEl.appendChild(watchBtn)
+  const favBtn = 
     mkBtn('收藏 ▾', async () => {
       const on = openList !== 'fav'
       openList = on ? 'fav' : ''
       if (on) favView = { mode: 'folders' }
       await renderList()
-    }),
-  )
+    })
+  rowEl.appendChild(favBtn)
 
   // ---------- 状态 ----------
   function paint() {
