@@ -271,18 +271,37 @@
     return false
   }
 
+  // ⚠⚠⚠ 按钮必须属于**最后这一条** —— 判法跟 readReadyNearLast 一样：
+  //   按钮在文档里的位置必须在 last **之后** ✓
+  //   不这么判的后果（她实测踩到的）：被拦时**最后这条没有朗读按钮**，
+  //   它就一路往上找、最后全页面找 → 点到**上一条**的朗读，
+  //   把**旧的内容**念出来 —— 比不弹提示还糟 ✗✗
+  function 属于最后这条(hit, last) {
+    if (!hit || !last) return false
+    try {
+      return !!(last.compareDocumentPosition(hit) & Node.DOCUMENT_POSITION_FOLLOWING)
+    } catch (e) {
+      return false
+    }
+  }
+
   async function findReadButton() {
     const last = lastMarkdown()
+    // ⚠ 每一处找法最后都要过这道闸 —— 只认「在最后这条之后」的 ✓
+    const 只取最后这条的 = () => {
+      const hit = pickRead(document)
+      return 属于最后这条(hit, last) ? hit : null
+    }
     // 先直接找 —— 等回复那一步已经确认「按钮挂出来了」，所以绝大多数情况这里一击即中，
     // 不用划鼠标、不用等那 0.4 秒
     const quickSearch = () => {
       let n = last
       for (let i = 0; i < 6 && n; i++) {
         const hit = pickRead(n)
-        if (hit) return hit
+        if (属于最后这条(hit, last)) return hit
         n = n.parentElement
       }
-      return pickRead(document)
+      return 只取最后这条的()
     }
     const quick = quickSearch()
     if (quick) return quick
@@ -303,13 +322,16 @@
         if (more) {
           more.click()
           await sleep(600)
-          const hit = pickRead(document)
+          const hit = 只取最后这条的()
           if (hit) return hit
         }
         n = n.parentElement
       }
     }
-    throw fail('没找到「朗读」按钮', diagnostics(last))
+    // ⚠⚠ 找不到就**明说**，绝不退而求其次去点上一条的 ✗
+    //   ⚠ 话跟另一条路**保持一致** —— 她说的：「就说被拦了就行」✗
+    //     （最后这条没挂朗读按钮，实际就是被拦了；分两个说法她还得分辨）
+    throw fail('被拦了')
   }
 
   // 播放中会变成「停止朗读」
