@@ -1,6 +1,6 @@
 {
   "name": "dsh-tts-bridge",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "朗读桥：把 DSH 会话里的话，交给你自己浏览器里登录的 DeepSeek 网页端朗读出来",
   "license": "MIT",
   "type": "module",

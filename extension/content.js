@@ -322,7 +322,23 @@
 
   // ---------- 主流程 ----------
   // 盯页面变化来判断「复述完了没」——比定时器靠谱，窗口最小化/后台也不会被掐慢
-  async function waitForReply(beforeText, beforeCount, beforeNode, timeoutMs) {
+  // ⚠⚠ 页面里「被拦」那句话出现了几次 —— 用**数量变化**判「新出现」✓
+  //   为什么要数数量：页面上**以前**的对话里可能就有同样的话（她聊过一次），
+  //   光判「有没有」会一直误报 → 只有**比发之前多出来**才算这次被拦 ✗
+  function countRefusal(t) {
+    const s = String(t || '')
+    let n = 0
+    for (const w of REFUSAL_WORDS) {
+      let i = -1
+      while ((i = s.indexOf(w, i + 1)) >= 0) n++
+    }
+    return n
+  }
+  // 被拦时 DeepSeek **不挂朗读按钮**，所以「等按钮」那条判据永远不成立 ——
+  //   必须另外从**页面文字**上认它，不能只等 markdown 节点 ✓
+  let 这次被拦了 = false
+
+  async function waitForReply(beforeText, beforeCount, beforeNode, timeoutMs, beforeRefusal) {
     const t0 = Date.now()
     let last = ''
     let lastChange = Date.now()
@@ -332,6 +348,14 @@
     let kick = null
     const evaluate = () => {
       if (done) return
+      // ⚠⚠⚠ 先认「被拦」—— 这条要放在**最前面**，而且**不依赖 markdown 节点**：
+      //   被拦时没有朗读按钮、主判据永远不成立，会一路等到超时（200 秒）✗
+      //   判据：页面上「被拦那句话」的**数量比发之前多了** → 就是这次被拦的 ✓
+      if (typeof beforeRefusal === 'number' && countRefusal(document.body.innerText || '') > beforeRefusal) {
+        这次被拦了 = true
+        done = '__被拦__'
+        return
+      }
       const nodes = document.querySelectorAll(MD_SEL)
       const node = nodes.length ? nodes[nodes.length - 1] : null
       const cur = node ? (node.innerText || '').trim() : ''
@@ -429,6 +453,10 @@
     const before = lastMarkdown()
     const beforeText = before ? (before.innerText || '').trim() : ''
     const beforeCount = document.querySelectorAll(MD_SEL).length
+    // ⚠⚠ 发之前先数一下页面上「被拦那句话」有几个 ——
+    //   发完比这个数多，就是这次被拦的 ✓（光判「有没有」会被以前的对话误报）
+    const beforeRefusal = countRefusal(document.body.innerText || '')
+    这次被拦了 = false
     const payload = PREFIX + text
 
     input.focus()
@@ -453,8 +481,15 @@
     // 不然发送过程本身带来的渲染会被当成「DeepSeek 回复好了」
     status = '等 DeepSeek 复述…'
     paint()
-    const reply = await waitForReply(beforeText, beforeCount, before)
+    const reply = await waitForReply(beforeText, beforeCount, before, undefined, beforeRefusal)
     if (cancelWanted) throw fail('已取消')
+    // ⚠⚠⚠ 被拦了 —— 这条要**放在「没发出去」前面**判：
+    //   被拦时没有朗读按钮、可能连 markdown 节点都没有 → reply 会是 null，
+    //   走下面那条就会误报成「没发出去」，她看到的提示就是错的 ✗
+    if (这次被拦了) {
+      这次被拦了 = false
+      throw fail('被拦了')
+    }
     if (!reply) {
       throw fail(
         '没发出去',
