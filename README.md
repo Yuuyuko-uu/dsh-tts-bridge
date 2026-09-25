@@ -33,9 +33,16 @@
 
 ### 第一步：装 DSH 插件
 
+**它已经在 DSH 的插件市场里了** —— 打开市场搜「朗读桥」装上就行。
+
+用命令行装也可以：
+
 ```sh
-dsh plugin --profile web add dsh-tts-bridge
+dsh plugin --profile web add github:Yuuyuko-uu/dsh-tts-bridge
 ```
+
+> ⚠ 这个插件**没有发到 npm 上**，所以别写成 `add dsh-tts-bridge` —— 那样会找不到包。
+> 要写 `github:` 那一种（上面这条），或者干脆用插件市场。
 
 装完**重启一次 DSH**。
 
