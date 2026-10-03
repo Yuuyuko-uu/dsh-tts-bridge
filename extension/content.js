@@ -227,10 +227,16 @@
     const t = (el.getAttribute('title') || '').trim()
     const txt = (el.innerText || '').trim()
     const dt = (el.getAttribute('data-testid') || '').toLowerCase()
+    // ⚠ 2026-10-03：写上「朗读」但后面带了别的字（「朗读这条」「朗读回复」）也要认 ——
+    //   原来只认**一字不差**的「朗读」，DeepSeek 稍微改一下文案就整条找不到了 ✗
+    //   （「停止…」的按钮要排除，那是正在出声时的状态）
+    const 像朗读 = (s) => !!s && s.indexOf('朗读') >= 0 && s.indexOf('停止') < 0
     return (
       a === '朗读' ||
       t === '朗读' ||
       txt === '朗读' ||
+      像朗读(a) ||
+      像朗读(t) ||
       a === '停止朗读' ||
       t === '停止朗读' ||
       a === '停止播放' ||
@@ -285,53 +291,64 @@
     }
   }
 
+  // ⚠⚠⚠ 2026-10-03 改（她报的「内容发出去了，却报拦住、也不去点，得自己手点」）：
+  //   原来这里**只找一轮**（直接找 → 划鼠标 400 毫秒 → 展开「更多」），前后大约一秒；
+  //   找不到就报「被拦了」。可她撞到的正是这一条：**复述其实已经好了**（话也发出去了），
+  //   只是工具条还没挂出来（长段落更慢）→ 报「被拦了」、也不去点；
+  //   她过一会儿自己手点反而成 —— 因为那会儿按钮已经出来了 ✗✗
+  //   → 现在改成**耐心找**：最多找约 15 秒，每一轮都滚到底、重新划一遍鼠标；
+  //     真的一直没有，才说「没找到朗读按钮」——
+  //     **不再把「按钮没出来」硬说成「被拦」（那是两码事，混着说她也没法分辨）** ✓
   async function findReadButton() {
-    const last = lastMarkdown()
-    // ⚠ 每一处找法最后都要过这道闸 —— 只认「在最后这条之后」的 ✓
-    const 只取最后这条的 = () => {
-      const hit = pickRead(document)
+    const 只看最后这条 = (last, root) => {
+      const hit = pickRead(root || document)
       return 属于最后这条(hit, last) ? hit : null
     }
-    // 先直接找 —— 等回复那一步已经确认「按钮挂出来了」，所以绝大多数情况这里一击即中，
+    // 先直接找 —— 等回复那一步多半已经确认「按钮挂出来了」，所以大多数情况这里一击即中，
     // 不用划鼠标、不用等那 0.4 秒
-    const quickSearch = () => {
+    const 快找 = (last) => {
       let n = last
       for (let i = 0; i < 6 && n; i++) {
         const hit = pickRead(n)
         if (属于最后这条(hit, last)) return hit
         n = n.parentElement
       }
-      return 只取最后这条的()
+      return 只看最后这条(last)
     }
-    const quick = quickSearch()
-    if (quick) return quick
-    // 没找到才划鼠标让工具条浮出来，再找一遍
-    if (last) {
-      revealToolbar(last)
-      await sleep(400)
-      const second = quickSearch()
-      if (second) return second
-    }
-    // 还没找到：试着点开「更多」再看一次
-    if (last) {
-      let n = last
-      for (let i = 0; i < 4 && n; i++) {
-        const more = Array.from(n.querySelectorAll('button, [role="button"], [aria-label], [title]'))
-          .filter((el) => isVisible(el) && /更多|more|⋯|\.\.\./.test(labels(el)))
-          .pop()
-        if (more) {
-          more.click()
-          await sleep(600)
-          const hit = 只取最后这条的()
-          if (hit) return hit
-        }
-        n = n.parentElement
+    const t0 = Date.now()
+    let 轮 = 0
+    while (true) {
+      轮++
+      const last = lastMarkdown()
+      const quick = 快找(last)
+      if (quick) return quick
+      // 没找到：滚到底 + 划鼠标让工具条浮出来，再找一遍
+      if (last) {
+        scrollToBottom()
+        revealToolbar(last)
+        await sleep(400)
+        const second = 快找(last)
+        if (second) return second
       }
+      // 还没找到：试着点开「更多」再看一次（只在前两轮点，免得点开又点关上）
+      if (last && 轮 <= 2) {
+        let n = last
+        for (let i = 0; i < 4 && n; i++) {
+          const more = Array.from(n.querySelectorAll('button, [role="button"], [aria-label], [title]'))
+            .filter((el) => isVisible(el) && /更多|more|⋯|\.\.\./.test(labels(el)))
+            .pop()
+          if (more) {
+            more.click()
+            await sleep(600)
+            const hit = 只看最后这条(last)
+            if (hit) return hit
+          }
+          n = n.parentElement
+        }
+      }
+      if (Date.now() - t0 > 15000) throw fail('没找到朗读按钮')
+      await sleep(400)
     }
-    // ⚠⚠ 找不到就**明说**，绝不退而求其次去点上一条的 ✗
-    //   ⚠ 话跟另一条路**保持一致** —— 她说的：「就说被拦了就行」✗
-    //     （最后这条没挂朗读按钮，实际就是被拦了；分两个说法她还得分辨）
-    throw fail('被拦了')
   }
 
   // 播放中会变成「停止朗读」
@@ -360,7 +377,7 @@
   //   必须另外从**页面文字**上认它，不能只等 markdown 节点 ✓
   let 这次被拦了 = false
 
-  async function waitForReply(beforeText, beforeCount, beforeNode, timeoutMs, beforeRefusal) {
+  async function waitForReply(beforeText, beforeCount, beforeNode, timeoutMs, 拒绝) {
     const t0 = Date.now()
     let last = ''
     let lastChange = Date.now()
@@ -368,15 +385,29 @@
     let appeared = false
     let done = null
     let kick = null
+    const 我方词 = 拒绝 && typeof 拒绝.我方词 === 'number' ? 拒绝.我方词 : 0
+    const 页基准 = 拒绝 && typeof 拒绝.页基准 === 'number' ? 拒绝.页基准 : null
     const evaluate = () => {
       if (done) return
       // ⚠⚠⚠ 先认「被拦」—— 这条要放在**最前面**，而且**不依赖 markdown 节点**：
       //   被拦时没有朗读按钮、主判据永远不成立，会一路等到超时（200 秒）✗
-      //   判据：页面上「被拦那句话」的**数量比发之前多了** → 就是这次被拦的 ✓
-      if (typeof beforeRefusal === 'number' && countRefusal(document.body.innerText || '') > beforeRefusal) {
-        这次被拦了 = true
-        done = '__被拦__'
-        return
+      //   它拒绝时，页面上会多出那句
+      //   「你好，这个问题我暂时无法回答，让我们换个话题再聊聊吧。」
+      // ⚠ 2026-10-03 把判据收紧成两条（原来只看整页数量，会被我们自己发过去的那段带偏）：
+      //   ① 末尾这条**新复述**里的拒绝词，比我们发过去的原文**还多** → 它自己加了那句拒绝 ✓
+      //      （原文对白里本来就有「换个话题」这种话，复述出来一模一样 → 差是 0，不算 ✗）
+      //   ② 新回复还没挂出来时，整页多出来的拒绝词要**超过我们那段话本身能带来的**才算 ✓
+      if (页基准 !== null) {
+        const nodes0 = document.querySelectorAll(MD_SEL)
+        const node0 = nodes0.length ? nodes0[nodes0.length - 1] : null
+        const cur0 = node0 && node0 !== beforeNode ? (node0.innerText || '').trim() : ''
+        const 它多出来的 = cur0 ? countRefusal(cur0) - 我方词 : 0
+        const 整页多出来的 = countRefusal(document.body.innerText || '') - 页基准 - 我方词
+        if (它多出来的 > 0 || (!cur0 && 整页多出来的 > 0)) {
+          这次被拦了 = true
+          done = '__被拦__'
+          return
+        }
       }
       const nodes = document.querySelectorAll(MD_SEL)
       const node = nodes.length ? nodes[nodes.length - 1] : null
@@ -475,11 +506,14 @@
     const before = lastMarkdown()
     const beforeText = before ? (before.innerText || '').trim() : ''
     const beforeCount = document.querySelectorAll(MD_SEL).length
-    // ⚠⚠ 发之前先数一下页面上「被拦那句话」有几个 ——
-    //   发完比这个数多，就是这次被拦的 ✓（光判「有没有」会被以前的对话误报）
+    // ⚠⚠ 发之前先数一下页面上「拒绝词」有几个 ——
+    //   发完比这个数多，才可能是这次被拦的 ✓（光判「有没有」会被以前的对话误报）
+    // ⚠ 2026-10-03：我们自己发过去的那段**也会显示在页面上**（用户消息一条、复述再一条），
+    //   所以要把「我方词数」一起交给判据，让它扣掉这一截（见 waitForReply 里那两条）✗
     const beforeRefusal = countRefusal(document.body.innerText || '')
     这次被拦了 = false
     const payload = PREFIX + text
+    const 我方词 = countRefusal(payload)
 
     input.focus()
     setNativeValue(input, payload)
@@ -503,7 +537,10 @@
     // 不然发送过程本身带来的渲染会被当成「DeepSeek 回复好了」
     status = '等 DeepSeek 复述…'
     paint()
-    const reply = await waitForReply(beforeText, beforeCount, before, undefined, beforeRefusal)
+    const reply = await waitForReply(beforeText, beforeCount, before, undefined, {
+      页基准: beforeRefusal,
+      我方词: 我方词,
+    })
     if (cancelWanted) throw fail('已取消')
     // ⚠⚠⚠ 被拦了 —— 这条要**放在「没发出去」前面**判：
     //   被拦时没有朗读按钮、可能连 markdown 节点都没有 → reply 会是 null，
