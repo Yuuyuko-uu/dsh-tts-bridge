@@ -5,7 +5,13 @@
 
 ;(() => {
   const POLL_MS = 1200
-  const PREFIX = '请只原样重复下面这一段，不要加任何自己的话，也不要解释：\n\n'
+  // ⚠⚠⚠ 2026-10-12 她要的（**这一版是她专用的，不往外发** ✗）：大肥鱼爱发颜文字，
+  //   可朗读那边是**一字不差全念**、它自己不会判断 → 有时不念、有时念成「欧米伽」很怪 ✗
+  //   → 就在最前面这句里交代清楚：表情、颜文字、特殊符号**不用重复，跳过就行** ✓
+  //   （宿主那边另有一道「去颜文字」兜底 ✓ 就算它没听话，也不会被念出来 ✓）
+  const PREFIX =
+    '请只原样重复下面这一段，不要加任何自己的话，也不要解释。\n' +
+    '里面的表情、颜文字和特殊符号（比如 (´｡• ω •｡`)、★、♡、～、Ω 这一类）不用重复，跳过就行：\n\n'
   // 注意：只能用 .ds-markdown（整条消息的容器）。
   // 以前写成 [class*="ds-markdown"]，结果把消息里每个 <p class="ds-markdown-paragraph">
   // 段落也匹配进来了 —— 段落永远排在它父亲后面，于是「末尾那条」永远是一个小段落，
@@ -537,7 +543,13 @@
     // 不然发送过程本身带来的渲染会被当成「DeepSeek 回复好了」
     status = '等 DeepSeek 复述…'
     paint()
-    const reply = await waitForReply(beforeText, beforeCount, before, undefined, {
+    // ⚠⚠⚠ 2026-10-12 修（她报的「点了网页一点反应都没有」）
+    //   这里第 4 个参数是**超时**，原来传的是 `undefined` →
+    //   函数内部就用了默认值 **200 秒** ✗（它自己的注释写着「会一路等到超时（200 秒）」）
+    //   → 她看到的就是"干等三分多钟、什么都不发生"✓ 而我在 25 秒/40 秒就去读记录 ✗ 当然读不到 ✓
+    //   改成 45 秒：到点就走到下面的 fail('没发出去', diagnostics…) ✓
+    //   那一报会把页面现场带回来（输入框还剩什么、有没有 node、朗读按钮在不在 ……）✓
+    const reply = await waitForReply(beforeText, beforeCount, before, 45000, {
       页基准: beforeRefusal,
       我方词: 我方词,
     })
@@ -710,15 +722,74 @@
     paint()
   }
 
+  // ⚠⚠⚠ 2026-10-12：**独立的看门狗**（关键：不能放在 loop 里面 ✗）
+  //   上一版我写在 loop 的循环体里 —— 可 loop 一旦在某个 await 上卡住，
+  //   那个判断就**永远轮不到执行** ✗ 所以它一声不吭 ✓（现在明白了 ✓）
+  //   这里用独立定时器：不管 loop 卡在哪儿，到点就报现场 ✓
+  setInterval(() => {
+    try {
+      if (!busy || !busySince || Date.now() - busySince < 20000) return
+      const 卡了 = Math.round((Date.now() - busySince) / 1000)
+      let 现场 = { 卡了秒: 卡了 }
+      try {
+        const 框 = findInput()
+        const 钮 = 框 ? findSendButton(框) : null
+        const 可点 = Array.from(document.querySelectorAll('button, [role="button"]')).filter(isVisible)
+        现场 = {
+          卡了秒: 卡了,
+          地址: String(location.href || '').slice(0, 120),
+          标题: String(document.title || '').slice(0, 60),
+          输入框: 框 ? String(框.tagName) + ' / ' + short(框.getAttribute('placeholder') || 框.className || '', 60) : '没找到',
+          发送按钮: 钮 ? short(textLabel(钮) || 钮.className || '', 60) : '没找到',
+          可点个数: 可点.length,
+          可点头几个: 可点.slice(0, 6).map((el) => short(textLabel(el) || el.className || '', 30)),
+          正文尾巴: short(document.body.innerText || '', 200),
+        }
+      } catch (e2) {}
+      busy = false
+      busySince = 0
+      cancelWanted = true
+      status = '卡太久了，我自己复位了'
+      noteUntil = Date.now() + 8000
+      try {
+        ack(0, false, '卡住超时：' + JSON.stringify(现场))
+      } catch (e3) {}
+      try {
+        paint()
+      } catch (e4) {}
+    } catch (e) {}
+  }, 3000)
+
   async function loop() {
     while (!dead) {
       try {
-        // 看门狗：万一 busy 卡住超过两分半，自己复位，免得永远举着「正在念」
-        if (busy && busySince && Date.now() - busySince > 150000) {
+        // ⚠⚠⚠ 2026-10-12：她说「跟取文字无关，是网页那边压根没反应」✗
+        //   查到的：扩展**有来领**活儿 ✓ 但领走之后**连自己的报错都没走到** ✗
+        //   → 说明它卡在一个"一直等、等不到、又没有超时"的地方 ✓
+        //   这里把判断从 150 秒缩到 30 秒 ✓ 并且**卡住的时候把页面现场报回去** ✓
+        //   （报回去就会出现在宿主的 history 里 ✓ 我一看就知道它想找什么、页面上有什么 ✓）
+        if (busy && busySince && Date.now() - busySince > 30000) {
+          const 卡了 = Math.round((Date.now() - busySince) / 1000)
           busy = false
           cancelWanted = true
           status = '卡太久了，我自己复位了'
           noteUntil = Date.now() + 8000
+          try {
+            const 框 = findInput()
+            const 钮 = 框 ? findSendButton(框) : null
+            const 可点 = Array.from(document.querySelectorAll('button, [role="button"]')).filter(isVisible)
+            const 现场 = {
+              卡了秒: 卡了,
+              地址: String(location.href || '').slice(0, 120),
+              标题: String(document.title || '').slice(0, 60),
+              输入框: 框 ? String(框.tagName) + ' / ' + short(框.getAttribute('placeholder') || 框.className || '', 60) : '没找到',
+              发送按钮: 钮 ? short(textLabel(钮) || 钮.className || '', 60) : '没找到',
+              可点个数: 可点.length,
+              可点头几个: 可点.slice(0, 6).map((el) => short(textLabel(el) || el.className || '', 30)),
+              正文尾巴: short(document.body.innerText || '', 200),
+            }
+            await ack(0, false, '卡住超时：' + JSON.stringify(现场))
+          } catch (e2) {}
         }
         const res = await tell({ type: 'poll', client: CLIENT })
         if (!res || !res.ok) {
