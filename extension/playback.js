@@ -104,7 +104,11 @@
       if (waited >= maxTicks) {
         status('响太久了，不再等')
         await o.onPlaying(false)
-        return finish({ ok: false, why: '响太久了，不再等' })
+        finish({ ok: false, why: '响太久了，不再等' })
+        // 放弃之后也要让页面那头收手（点一下停止）—— 不然这边说「没在响」，
+        // 页面却还在念，下一句一进来又被打断
+        if (o.onGiveUp) quietly(() => o.onGiveUp())
+        return
       }
     }
 
@@ -119,6 +123,7 @@
         status('响太久了，不再等')
       } catch (e) {}
       finish({ ok: false, why: '响太久了，不再等' }, true)
+      if (o.onGiveUp) quietly(() => o.onGiveUp())
     }, maxMs)
     next()
     return {

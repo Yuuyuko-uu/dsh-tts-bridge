@@ -24,6 +24,12 @@
   let dead = false
   let status = '刚启动'
   const PB = self.__ttsPlayback // playback.js（manifest 里排在本文件前面）
+  if (!PB) {
+    // 扩展没加载全（manifest 顺序被改过 / 只注入了一个脚本）：说清楚，别让它默默不响
+    status = '扩展没加载全（缺 playback.js），卸了重装一次'
+    try { paint() } catch (e) {}
+    return
+  }
   let curWait = null // 正在盯的那次播放（同一时刻只有一个）
   let handleGen = 0 // 第几条；旧条目迟到的收尾不许动新条目的 busy/状态
   let noteUntil = 0
@@ -634,9 +640,25 @@
   // ⚠ 一出声**不算完**：要等它真念完（连续静 3 次）才回执，否则下一条会把这一条打断 ✗
   //   具体规则在 playback.js（能拿假时钟测）；这里只接上页面这头的手脚。
   // base / isActive 都是这一条进门时定下的：旧条目的 playing 不许写到另一个窝，也不许动新条目的状态
-  function waitPlayback(itemId, base, isActive) {
+  // ⭐ 按这一条的字数估一个上限：正常朗读大约 3~4 字/秒，再给 30 秒余量。
+  //   原来写死 30 分钟 —— 标签页里只要有别的声音（视频/通知），audible 一直为真，
+  //   就永远等不到「连续 3 秒静音」，队列要卡半小时才失败。
+  function 等多久(text) {
+    const 字数 = String(text || '').replace(/\s+/g, '').length
+    return Math.max(60000, Math.min(10 * 60000, Math.round(字数 * 400) + 30000))
+  }
+
+  function waitPlayback(itemId, base, isActive, text) {
     if (curWait) curWait.cancel('被新的一条接替')
     const w = PB.createPlaybackWait({
+      maxMs: 等多久(text),
+      // 放弃的时候顺手点一下停止：让页面真的收声，别一边报「没在响」一边还在念
+      onGiveUp: () => {
+        try {
+          const b = findReadOrStop()
+          if (b) b.click()
+        } catch (e) {}
+      },
       isCancelled: () => !isActive(),
       askAudible: askAudible,
       onTick: () => {
@@ -718,7 +740,7 @@
     const isActive = () => gen === handleGen && !cancelWanted
     // 看门狗复位后又来了新的一条：旧条目就算慢吞吞走到这一步，也不许去顶掉新条目的播放
     const wait = (id) =>
-      gen === handleGen ? waitPlayback(id, base, isActive) : Promise.resolve({ ok: false, why: '被新的一条接替' })
+      gen === handleGen ? waitPlayback(id, base, isActive, item.text) : Promise.resolve({ ok: false, why: '被新的一条接替' })
     // 失败回执照发（宿主要知道这条没念成），只是写回它自己的窝
     const s = await PB.runItem(item, {
       speak: (text) => speak(text, isActive),
