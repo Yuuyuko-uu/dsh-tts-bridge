@@ -23,12 +23,15 @@
   let busy = false
   let dead = false
   let status = '刚启动'
-  let playTimer = null
+  const PB = self.__ttsPlayback // playback.js（manifest 里排在本文件前面）
+  let curWait = null // 正在盯的那次播放（同一时刻只有一个）
+  let handleGen = 0 // 第几条；旧条目迟到的收尾不许动新条目的 busy/状态
   let noteUntil = 0
   let cancelWanted = false
   let busySince = 0
   let lastWarning = null
   let curBase = null // 这次是哪个窝（3080 还是 43129）
+  let curJob = null // 正在处理的那条：{ gen, base } —— 看门狗回执要写回它自己的窝
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -305,7 +308,7 @@
   //   → 现在改成**耐心找**：最多找约 15 秒，每一轮都滚到底、重新划一遍鼠标；
   //     真的一直没有，才说「没找到朗读按钮」——
   //     **不再把「按钮没出来」硬说成「被拦」（那是两码事，混着说她也没法分辨）** ✓
-  async function findReadButton() {
+  async function findReadButton(check) {
     const 只看最后这条 = (last, root) => {
       const hit = pickRead(root || document)
       return 属于最后这条(hit, last) ? hit : null
@@ -324,6 +327,7 @@
     const t0 = Date.now()
     let 轮 = 0
     while (true) {
+      check()
       轮++
       const last = lastMarkdown()
       const quick = 快找(last)
@@ -333,6 +337,7 @@
         scrollToBottom()
         revealToolbar(last)
         await sleep(400)
+        check()
         const second = 快找(last)
         if (second) return second
       }
@@ -344,8 +349,10 @@
             .filter((el) => isVisible(el) && /更多|more|⋯|\.\.\./.test(labels(el)))
             .pop()
           if (more) {
+            check()
             more.click()
             await sleep(600)
+            check()
             const hit = 只看最后这条(last)
             if (hit) return hit
           }
@@ -381,9 +388,12 @@
   }
   // 被拦时 DeepSeek **不挂朗读按钮**，所以「等按钮」那条判据永远不成立 ——
   //   必须另外从**页面文字**上认它，不能只等 markdown 节点 ✓
-  let 这次被拦了 = false
+  //   （认出来就返回这个记号；以前是个全局标记，旧条目迟到的判定会改到新条目头上 ✗）
+  const 被拦记号 = '__被拦__'
 
-  async function waitForReply(beforeText, beforeCount, beforeNode, timeoutMs, 拒绝) {
+  // isActive：这条还算不算数（被停止 / 看门狗复位 / 新的一条接替就不算了）——
+  //   不算数就立刻收手，不再认页面上的新回复（那可能是下一条的）✓
+  async function waitForReply(beforeText, beforeCount, beforeNode, timeoutMs, 拒绝, isActive) {
     const t0 = Date.now()
     let last = ''
     let lastChange = Date.now()
@@ -394,7 +404,7 @@
     const 我方词 = 拒绝 && typeof 拒绝.我方词 === 'number' ? 拒绝.我方词 : 0
     const 页基准 = 拒绝 && typeof 拒绝.页基准 === 'number' ? 拒绝.页基准 : null
     const evaluate = () => {
-      if (done) return
+      if (done || !isActive()) return
       // ⚠⚠⚠ 先认「被拦」—— 这条要放在**最前面**，而且**不依赖 markdown 节点**：
       //   被拦时没有朗读按钮、主判据永远不成立，会一路等到超时（200 秒）✗
       //   它拒绝时，页面上会多出那句
@@ -410,8 +420,7 @@
         const 它多出来的 = cur0 ? countRefusal(cur0) - 我方词 : 0
         const 整页多出来的 = countRefusal(document.body.innerText || '') - 页基准 - 我方词
         if (它多出来的 > 0 || (!cur0 && 整页多出来的 > 0)) {
-          这次被拦了 = true
-          done = '__被拦__'
+          done = 被拦记号
           return
         }
       }
@@ -450,7 +459,7 @@
     } catch (e) {}
     let shownLen = -1
     try {
-      while (!done && !cancelWanted && Date.now() - t0 < (timeoutMs || 200000)) {
+      while (!done && isActive() && Date.now() - t0 < (timeoutMs || 200000)) {
         evaluate()
         const secs = Math.round((Date.now() - t0) / 1000)
         const want = appeared
@@ -504,7 +513,13 @@
     return null
   }
 
-  async function speak(text) {
+  // isActive：这条还算不算数。每个 await 回来、在动页面（发送 / 点朗读）或改共享状态之前都要再问一次 ——
+  //   看门狗复位 / 按了停止之后，旧条目慢吞吞醒过来，不许去点**新条目**的按钮 ✗
+  async function speak(text, isActive) {
+    const check = () => {
+      if (!isActive()) throw fail('已取消')
+    }
+    check()
     const input = findInput()
     if (!input) throw fail('没找到对话框', dump(document, 20).join(' ;; '))
     // 发送前先记住「现在末尾是哪一条」——新回复是一条全新的 markdown 节点，
@@ -517,24 +532,26 @@
     // ⚠ 2026-10-03：我们自己发过去的那段**也会显示在页面上**（用户消息一条、复述再一条），
     //   所以要把「我方词数」一起交给判据，让它扣掉这一截（见 waitForReply 里那两条）✗
     const beforeRefusal = countRefusal(document.body.innerText || '')
-    这次被拦了 = false
     const payload = PREFIX + text
     const 我方词 = countRefusal(payload)
 
     input.focus()
     setNativeValue(input, payload)
     await sleep(250)
+    check()
 
     key(input, 'keydown')
     key(input, 'keypress')
     key(input, 'keyup')
     await sleep(900)
+    check()
     const clearedByEnter = readInput(input) !== payload
     if (!clearedByEnter) {
       const btn = findSendButton(input)
       if (btn) {
         btn.click()
         await sleep(900)
+        check()
       }
     }
     const cleared = readInput(input) !== payload
@@ -549,18 +566,22 @@
     //   → 她看到的就是"干等三分多钟、什么都不发生"✓ 而我在 25 秒/40 秒就去读记录 ✗ 当然读不到 ✓
     //   改成 45 秒：到点就走到下面的 fail('没发出去', diagnostics…) ✓
     //   那一报会把页面现场带回来（输入框还剩什么、有没有 node、朗读按钮在不在 ……）✓
-    const reply = await waitForReply(beforeText, beforeCount, before, 45000, {
-      页基准: beforeRefusal,
-      我方词: 我方词,
-    })
-    if (cancelWanted) throw fail('已取消')
+    const reply = await waitForReply(
+      beforeText,
+      beforeCount,
+      before,
+      45000,
+      {
+        页基准: beforeRefusal,
+        我方词: 我方词,
+      },
+      isActive,
+    )
+    check()
     // ⚠⚠⚠ 被拦了 —— 这条要**放在「没发出去」前面**判：
     //   被拦时没有朗读按钮、可能连 markdown 节点都没有 → reply 会是 null，
     //   走下面那条就会误报成「没发出去」，她看到的提示就是错的 ✗
-    if (这次被拦了) {
-      这次被拦了 = false
-      throw fail('被拦了')
-    }
+    if (reply === 被拦记号) throw fail('被拦了')
     if (!reply) {
       throw fail(
         '没发出去',
@@ -582,9 +603,11 @@
       throw fail('被拦了')
     }
     scrollToBottom()
-    const btn = await findReadButton()
+    const btn = await findReadButton(check)
+    check()
     btn.click()
     await sleep(800)
+    check()
     // 页面上出现「限额」这类提示只当备注，不当结论 ——
     // 它可能是之前留下的、也可能弹一下又好了。真正的结论看有没有出声。
     lastWarning = readWarning()
@@ -608,64 +631,41 @@
   // 盯播放：第一次点经常只转图标不出声（DeepSeek 那边的解码资源还没热），
   // 所以静着就自动「停一下再点一次」——就是她手动发现的那个办法。
   // 成败以「浏览器说这个标签页到底有没有出声」为准，不看页面上出现了什么字。
-  function waitPlayback(itemId) {
-    return new Promise((resolve) => {
-      if (playTimer) clearInterval(playTimer)
-      let reported = false
-      let quiet = 0
-      let waited = 0
-      let retried = false
-      playTimer = setInterval(async () => {
-        if (cancelWanted) {
-          clearInterval(playTimer)
-          playTimer = null
-          resolve({ ok: false, why: '已取消' })
-          return
-        }
-        waited++
+  // ⚠ 一出声**不算完**：要等它真念完（连续静 3 次）才回执，否则下一条会把这一条打断 ✗
+  //   具体规则在 playback.js（能拿假时钟测）；这里只接上页面这头的手脚。
+  // base / isActive 都是这一条进门时定下的：旧条目的 playing 不许写到另一个窝，也不许动新条目的状态
+  function waitPlayback(itemId, base, isActive) {
+    if (curWait) curWait.cancel('被新的一条接替')
+    const w = PB.createPlaybackWait({
+      isCancelled: () => !isActive(),
+      askAudible: askAudible,
+      onTick: () => {
+        if (!isActive()) return
         noteUntil = Date.now() + 15000
-        if (await askAudible()) {
-          quiet = 0
-          if (!reported) {
-            reported = true
-            status = '出声了'
-            paint()
-            await tell({ type: 'playing', id: itemId, on: true, base: curBase })
-            // 一出声音就算成功，立刻回执；后面继续盯着，等它念完再报「停」
-            resolve({ ok: true })
-          } else if (waited % 25 === 0) {
-            // 心跳：告诉宿主「我还在响」，免得页面刷新后那边永远以为在响
-            await tell({ type: 'playing', id: itemId, on: true, base: curBase })
-          }
-          return
-        }
-        quiet++
-        if (reported && quiet >= 3) {
-          clearInterval(playTimer)
-          playTimer = null
-          status = '念完了'
-          paint()
-          await tell({ type: 'playing', id: itemId, on: false, base: curBase })
-          return
-        }
-        if (!reported && !retried && waited >= 6) {
-          retried = true
-          status = '没出声，重来一次…'
-          paint()
-          const stopBtn = findReadOrStop()
-          if (stopBtn) stopBtn.click()
-          await sleep(900)
-          const playBtn = findReadOrStop()
-          if (playBtn) playBtn.click()
-        } else if (!reported && retried && waited >= 18) {
-          clearInterval(playTimer)
-          playTimer = null
-          status = '点了朗读但没出声'
-          paint()
-          await tell({ type: 'playing', id: itemId, on: false, base: curBase })
-          resolve({ ok: false, why: '点了朗读但没出声', detail: lastWarning ? '页面提示：' + lastWarning : null })
-        }
-      }, 1000)
+        // 念长段落会超过看门狗的 20 秒 —— 还在正常盯着就续上，免得被当成卡死
+        if (busy) busySince = Date.now()
+      },
+      onStatus: (s) => {
+        if (!isActive()) return
+        status = s
+        paint()
+      },
+      onPlaying: (on) => tell({ type: 'playing', id: itemId, on: on, base: base }),
+      retry: async () => {
+        if (w.settled || !isActive()) return
+        const stopBtn = findReadOrStop()
+        if (stopBtn) stopBtn.click()
+        await sleep(900)
+        if (w.settled || !isActive()) return // 这 0.9 秒里被停止/取消了，就别再点开
+        const playBtn = findReadOrStop()
+        if (playBtn) playBtn.click()
+      },
+      warning: () => lastWarning,
+    })
+    curWait = w
+    return w.promise.then((v) => {
+      if (curWait === w) curWait = null
+      return v
     })
   }
 
@@ -704,22 +704,49 @@
     }
   }
 
-  async function ack(id, ok, error, detail) {
-    await tell({ type: 'ack', payload: { id: id, ok: ok, error: error || null, detail: detail || null, base: curBase } })
+  // base：回执写回哪个窝。条目 / 停止 / 看门狗都传自己进门时记下的那个；不传才用当前的（诊断之类）
+  async function ack(id, ok, error, detail, base) {
+    await tell({
+      type: 'ack',
+      payload: { id: id, ok: ok, error: error || null, detail: detail || null, base: base === undefined ? curBase : base },
+    })
   }
 
-  async function handle(item) {
-    try {
-      const note = await speak(item.text)
-      const verdict = await waitPlayback(item.id)
-      const detail = [note, verdict.detail].filter(Boolean).join(' | ')
-      await ack(item.id, verdict.ok, verdict.ok ? null : verdict.why, detail || null)
-      status = verdict.ok ? '念完了' : '没念成：' + verdict.why
-    } catch (e) {
-      await ack(item.id, false, (e && e.message) || String(e), e && e.detail)
-      status = '没念成：' + ((e && e.message) || e)
-    }
+  // 念 → 等**真念完** → 才回执（见 playback.js 的 runItem）
+  // gen 是这一条的令牌：看门狗复位 / 新的一条接替后就失效；按了停止也算不再有效
+  async function handle(item, gen, base) {
+    const isActive = () => gen === handleGen && !cancelWanted
+    // 看门狗复位后又来了新的一条：旧条目就算慢吞吞走到这一步，也不许去顶掉新条目的播放
+    const wait = (id) =>
+      gen === handleGen ? waitPlayback(id, base, isActive) : Promise.resolve({ ok: false, why: '被新的一条接替' })
+    // 失败回执照发（宿主要知道这条没念成），只是写回它自己的窝
+    const s = await PB.runItem(item, {
+      speak: (text) => speak(text, isActive),
+      waitPlayback: wait,
+      ack: (id, ok, error, detail) => ack(id, ok, error, detail, base),
+    })
+    if (gen !== handleGen) return
+    status = s
     paint()
+  }
+
+  // 看门狗复位：不光清 busy —— 当前这条的令牌作废、在盯的播放了结、正在响的停掉，
+  // 旧条目再醒过来也动不了页面、改不了新条目的状态 ✓
+  function abandonCurrent() {
+    const job = curJob
+    curJob = null
+    handleGen++
+    busy = false
+    busySince = 0
+    cancelWanted = true
+    if (curWait) curWait.cancel('卡太久了，已复位')
+    const base = job ? job.base : curBase
+    // stopReading 是 async：里面抛错不会被同步 try 接住，变成没人管的 rejection ✗
+    // 这里显式接住，只往卡住那条自己的窝报一句诊断；不动 status / paint（别盖掉新条目的界面），也不重试去点 ✓
+    stopReading().catch((e) => {
+      ack(0, false, '复位时停止朗读失败：' + ((e && e.message) || String(e)), null, base).catch(() => {})
+    })
+    return base
   }
 
   // ⚠⚠⚠ 2026-10-12：**独立的看门狗**（关键：不能放在 loop 里面 ✗）
@@ -746,13 +773,11 @@
           正文尾巴: short(document.body.innerText || '', 200),
         }
       } catch (e2) {}
-      busy = false
-      busySince = 0
-      cancelWanted = true
+      const base = abandonCurrent()
       status = '卡太久了，我自己复位了'
       noteUntil = Date.now() + 8000
       try {
-        ack(0, false, '卡住超时：' + JSON.stringify(现场))
+        ack(0, false, '卡住超时：' + JSON.stringify(现场), null, base)
       } catch (e3) {}
       try {
         paint()
@@ -770,8 +795,7 @@
         //   （报回去就会出现在宿主的 history 里 ✓ 我一看就知道它想找什么、页面上有什么 ✓）
         if (busy && busySince && Date.now() - busySince > 30000) {
           const 卡了 = Math.round((Date.now() - busySince) / 1000)
-          busy = false
-          cancelWanted = true
+          const base = abandonCurrent()
           status = '卡太久了，我自己复位了'
           noteUntil = Date.now() + 8000
           try {
@@ -788,7 +812,7 @@
               可点头几个: 可点.slice(0, 6).map((el) => short(textLabel(el) || el.className || '', 30)),
               正文尾巴: short(document.body.innerText || '', 200),
             }
-            await ack(0, false, '卡住超时：' + JSON.stringify(现场))
+            await ack(0, false, '卡住超时：' + JSON.stringify(现场), null, base)
           } catch (e2) {}
         }
         const res = await tell({ type: 'poll', client: CLIENT })
@@ -799,24 +823,29 @@
           if (res.data.base) { curBase = res.data.base }
           const item = res.data.item
           if (item && item.stop) {
+            const stopBase = curBase // 停止是哪个窝发的，回执就写回哪个
             cancelWanted = true
+            if (curWait) curWait.cancel('已取消')
             const stopped = await stopReading()
-            await ack(0, true, null, stopped ? '已停止' : '没找到停止按钮')
+            await ack(0, true, null, stopped ? '已停止' : '没找到停止按钮', stopBase)
             status = stopped ? '停了' : '没找到停止按钮'
             noteUntil = Date.now() + 8000
           } else if (item && !busy) {
             busy = true
             busySince = Date.now()
             cancelWanted = false
+            // 看门狗复位过的话，上一条可能还挂着在盯 —— 先了结它，别让它去点新这条的按钮
+            if (curWait) curWait.cancel('被新的一条接替')
+            const gen = ++handleGen
+            const base = curBase // 这一条是哪个窝的：playing / ACK（包括失败）都写回这里
+            curJob = { gen: gen, base: base }
+            const done = () => {
+              if (gen !== handleGen) return
+              busy = false
+              curJob = null
+            }
             // 注意：这里不能 await —— 一 await，循环就堵住了，停止指令要等它超时才能收到
-            handle(item).then(
-              () => {
-                busy = false
-              },
-              () => {
-                busy = false
-              },
-            )
+            handle(item, gen, base).then(done, done)
           } else if (Date.now() > noteUntil) {
             if (!auto) status = '自动朗读：关'
             else if (busy) status = '正在念…'
