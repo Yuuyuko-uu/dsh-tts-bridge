@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "朗读桥",
-  "version": "1.3.0",
+  "version": "1.3.2",
   "description": "把 DSH 里的话送到 DeepSeek 网页端，用你自己的账号朗读出来。",
   "permissions": [
     "tabs",
