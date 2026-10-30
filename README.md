@@ -176,4 +176,6 @@ dsh plugin --profile web add https://codeload.github.com/Yuuyuko-uu/dsh-tts-brid
 
 ## 许可
 
-MIT
+[Yuuyuko-uu 插件许可 1.0](./LICENSE)：允许使用、修改、商用；
+再分发时要在 README 第一屏注明原仓库和原作者；禁止把本项目说成自己的原创。
+这份许可不是 OSI 认证的开源许可，用之前请读一遍全文。
