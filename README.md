@@ -50,6 +50,14 @@
 dsh plugin --profile web add github:Yuuyuko-uu/dsh-tts-bridge
 ```
 
+> ⚠ 上面这行会让包管理器去 **clone 仓库**，机器上没装 `git` 会报 `ERR_PNPM_GIT_FETCH_FAILED`。
+> 没 git 就用下面这条 **tarball 直链**，一样能装，不用 git：
+
+```bash
+dsh plugin --profile web add https://codeload.github.com/Yuuyuko-uu/dsh-tts-bridge/tar.gz/refs/heads/main
+```
+
+
 > ⚠ 这个插件**没有发到 npm 上**，所以别写成 `add dsh-tts-bridge` —— 那样会找不到包。
 > 要写 `github:` 那一种（上面这条），或者干脆用插件市场。
 
