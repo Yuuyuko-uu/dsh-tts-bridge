@@ -47,11 +47,12 @@
 用命令行装也可以：
 
 ```sh
-dsh plugin --profile web add github:Yuuyuko-uu/dsh-tts-bridge
+dsh plugin --profile web add dsh-tts-bridge
 ```
 
-> ⚠ 上面这行会让包管理器去 **clone 仓库**，机器上没装 `git` 会报 `ERR_PNPM_GIT_FETCH_FAILED`。
-> 没 git 就用下面这条 **tarball 直链**，一样能装，不用 git：
+> 也可以在 npm 上直接看到这个包（含历史版本）：<https://www.npmjs.com/package/dsh-tts-bridge>
+
+> 上面那条要是碰到网络问题（npm 抽风、或者想固定某一次的代码快照），可以改用 tarball 直链，不用 git：
 
 ```bash
 dsh plugin --profile web add https://codeload.github.com/Yuuyuko-uu/dsh-tts-bridge/tar.gz/refs/heads/main
