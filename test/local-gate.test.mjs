@@ -60,6 +60,8 @@ const 请求 = (extra) => Object.assign({ method: 'GET', url: P + '/state', head
 
 test('允许来源：扩展可以，网页一律不行', () => {
   assert.equal(允许来源('chrome-extension://abcdefghijklmnop'), 'chrome-extension://abcdefghijklmnop')
+  // 火狐版的扩展来源是 moz-extension://，不认它的话问路永远 403
+  assert.equal(允许来源('moz-extension://1234-5678-abcd'), 'moz-extension://1234-5678-abcd')
   assert.equal(允许来源('http://127.0.0.1:9110'), null)
   assert.equal(允许来源('https://evil.example'), null)
   assert.equal(允许来源('null'), null)
