@@ -23,7 +23,7 @@
 ## 需要什么
 
 - **DSH**（DeepSeek Harness），带 Web 界面
-- **Chromium 内核的浏览器**：Chrome / Edge / Brave 等（Firefox 不行）
+- **Chromium 内核的浏览器**：Chrome / Edge / Brave 等；火狐用下面「火狐」那一节自己构建一份（`extension/` 本身是 Chrome MV3，火狐装不了）
 - **一个你自己的 DeepSeek 账号**（朗读是它给每个账号的功能）
 - 用的时候，**那个 DeepSeek 页面要开着**（真正出声的是它）
 
@@ -85,6 +85,33 @@ dsh plugin --profile web add https://codeload.github.com/Yuuyuko-uu/dsh-tts-brid
 > - **桌面版**：`%APPDATA%\dsh-desktop\harness\profiles\web\node_modules\dsh-tts-bridge\extension`
 >
 > （把上面那行整个复制到资源管理器的地址栏，回车就跳过去了。**如果朗读桥的卡片提示「还差一步」，说明就是这一步没做。**）
+
+### 火狐：自己构建一份
+
+`extension/` 是 Chrome 的 MV3 写法（`background.service_worker` + `importScripts`、`chrome.*` 的回调式 API），
+火狐装不了。仓库里带了一个翻译脚本，从**同一份源码**生成火狐版，不用另抄一份：
+
+```bash
+node scripts/build-firefox.mjs
+```
+
+产物：
+
+- `build/firefox/extension/` —— 解压版
+- `build/dsh-tts-firefox-<版本>.xpi` —— 压缩包
+
+装法二选一：
+
+1. **临时载入**（改代码方便，重启浏览器失效）：`about:debugging#/runtime/this-firefox` →
+   「临时载入附加组件…」→ 选 `build/firefox/extension/manifest.json`
+2. **装 xpi**（重启后还在）：`about:config` 里把 `xpinstall.signatures.required` 设为 `false`，
+   再把 xpi 拖进火狐窗口。正式版会拒绝未签名扩展，得走 AMO 签名或方式一
+
+装完同样要打开 <https://chat.deepseek.com> 并登录；第一次仍然得真人点一下它自己的「朗读」按钮。
+
+> 脚本做的事就三件：后台从 Service Worker 换成事件页（`background.scripts`）、
+> `importScripts` 去掉改由清单按顺序加载、`chrome.*` 统一走 `browser` 别名（火狐里只有
+> `browser.*` 返回 Promise）。清单里的权限、内容脚本都是照抄上游，改了上游会自动跟上。
 
 ### 第三步：第一次先自己点一下朗读（**必做**）
 

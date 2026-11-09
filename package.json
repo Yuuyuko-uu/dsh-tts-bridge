@@ -40,5 +40,9 @@
         "react"
       ]
     }
+  },
+  "scripts": {
+    "build:firefox": "node scripts/build-firefox.mjs",
+    "test:firefox": "node test/firefox-build.test.mjs"
   }
 }
